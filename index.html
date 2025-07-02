@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Uber-Style Live Cars Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      html, body, #map {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #search-bar {
+        position: absolute;
+        top: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 400px;
+        background: #222;
+        color: #fff;
+        border-radius: 30px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        padding: 14px 24px;
+        font-size: 18px;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+      }
+      #search-bar input {
+        background: transparent;
+        border: none;
+        color: #fff;
+        font-size: 18px;
+        flex: 1;
+        outline: none;
+      }
+      #search-bar img {
+        width: 24px;
+        margin-right: 12px;
+      }
+      .car-marker {
+        width: 36px;
+        height: 36px;
+        transform: translate(-18px, -18px);
+      }
+      #center-pin {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 36px;
+        height: 36px;
+        transform: translate(-50%, -100%);
+        z-index: 2;
+        pointer-events: none;
+      }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDqq0wUA0slOALDMxUtjJhuSBPZ33WvzD0"></script>
+    <script>
+      let map;
+      let carMarkers = [];
+      let carData = [
+        { id: 1, lat: 37.775, lng: -122.418, heading: 0 },
+        { id: 2, lat: 37.776, lng: -122.417, heading: 90 },
+        { id: 3, lat: 37.774, lng: -122.420, heading: 180 },
+        { id: 4, lat: 37.773, lng: -122.419, heading: 270 }
+      ];
+
+      const darkStyle = [
+        { "elementType": "geometry", "stylers": [{ "color": "#212121" }] },
+        { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
+        { "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
+        { "elementType": "labels.text.stroke", "stylers": [{ "color": "#212121" }] },
+        { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#757575" }] },
+        { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#bdbdbd" }] },
+        { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#383838" }] },
+        { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "color": "#212121" }] },
+        { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#8a8a8a" }] },
+        { "featureType": "transit", "elementType": "geometry", "stylers": [{ "color": "#2f3948" }] },
+        { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#000000" }] },
+        { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#3d3d3d" }] }
+      ];
+
+      function initMap() {
+        // Try to get user location
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              createMap(pos.coords.latitude, pos.coords.longitude);
+            },
+            () => {
+              // Fallback to SF
+              createMap(37.7749, -122.4194);
+            }
+          );
+        } else {
+          createMap(37.7749, -122.4194);
+        }
+      }
+
+      function createMap(lat, lng) {
+        map = new google.maps.Map(document.getElementById('map'), {
+          center: { lat, lng },
+          zoom: 15,
+          styles: darkStyle,
+          disableDefaultUI: true,
+        });
+
+        // Add animated car markers
+        carData.forEach(car => {
+          const marker = new google.maps.Marker({
+            position: { lat: car.lat, lng: car.lng },
+            map,
+            icon: {
+              url: "https://img.icons8.com/color/48/000000/car--v1.png",
+              scaledSize: new google.maps.Size(36, 36),
+              anchor: new google.maps.Point(18, 18),
+              rotation: car.heading
+            },
+            optimized: false
+          });
+          carMarkers.push(marker);
+        });
+
+        // Animate cars
+        setInterval(moveCars, 1200);
+      }
+
+      function moveCars() {
+        carData.forEach((car, i) => {
+          // Random walk
+          const angle = Math.random() * 2 * Math.PI;
+          car.lat += 0.0001 * Math.cos(angle);
+          car.lng += 0.0001 * Math.sin(angle);
+          car.heading = (car.heading + Math.floor(Math.random() * 60 - 30)) % 360;
+          carMarkers[i].setPosition({ lat: car.lat, lng: car.lng });
+          carMarkers[i].setIcon({
+            url: "https://img.icons8.com/color/48/000000/car--v1.png",
+            scaledSize: new google.maps.Size(36, 36),
+            anchor: new google.maps.Point(18, 18),
+            rotation: car.heading
+          });
+        });
+      }
+    </script>
+  </head>
+  <body onload="initMap()">
+    <div id="map"></div>
+    <div id="search-bar">
+      <img src="https://img.icons8.com/ios-filled/50/ffffff/search--v1.png"/>
+      <input type="text" placeholder="Where to?" disabled />
+    </div>
+    <img id="center-pin" src="https://img.icons8.com/ios-filled/50/ffffff/marker.png" style="display:none;" />
+  </body>
+</html>
