@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Uber-Style Live Cars Map</title>
+    <title>Uber-Style Live Cars Map (Giarmata-Vii, Romania)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
       html, body, #map {
@@ -53,20 +53,40 @@
         z-index: 2;
         pointer-events: none;
       }
+      .pulse {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 60px;
+        height: 60px;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        background: rgba(0, 122, 255, 0.3);
+        animation: pulse 2s infinite;
+        z-index: 1;
+        pointer-events: none;
+      }
+      @keyframes pulse {
+        0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.7; }
+        70% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+        100% { transform: translate(-50%, -50%) scale(0.7); opacity: 0; }
+      }
     </style>
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDqq0wUA0slOALDMxUtjJhuSBPZ33WvzD0"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyANKSBi9MG6jMVEenb000IaVOmxAXgD8G8&libraries=geometry"></script>
     <script>
       let map;
       let carMarkers = [];
       let userMarker = null;
-      let watchId = null;
-      let carData = [
-        { id: 1, lat: 37.775, lng: -122.418, heading: 0 },
-        { id: 2, lat: 37.776, lng: -122.417, heading: 90 },
-        { id: 3, lat: 37.774, lng: -122.420, heading: 180 },
-        { id: 4, lat: 37.773, lng: -122.419, heading: 270 }
-      ];
-
+      let userPulse = null;
+      let routePolyline = null;
+      let routePath = [];
+      let cars = [];
+      let animationFrameId;
+      // Demo route: two points in Giarmata-Vii, Romania
+      const origin = { lat: 45.8005, lng: 21.2735 };
+      const destination = { lat: 45.8030, lng: 21.2870 };
+      const carIconUrl = "https://cdn.jsdelivr.net/gh/alexandrtovmach/ff-assets@main/car-top-view.png";
+      const userIconUrl = "https://cdn.jsdelivr.net/gh/alexandrtovmach/ff-assets@main/user-location-dot.png";
       const darkStyle = [
         { "elementType": "geometry", "stylers": [{ "color": "#212121" }] },
         { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
@@ -82,19 +102,142 @@
         { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#3d3d3d" }] }
       ];
 
+      function getRoute(callback) {
+        const directionsService = new google.maps.DirectionsService();
+        directionsService.route({
+          origin,
+          destination,
+          travelMode: 'DRIVING'
+        }, (result, status) => {
+          if (status === 'OK') {
+            const points = result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+            callback(points);
+          } else {
+            alert('Directions request failed: ' + status);
+          }
+        });
+      }
+
+      function interpolateLatLng(path, progress) {
+        // progress: 0 to 1
+        let totalDist = 0;
+        let segDists = [];
+        for (let i = 1; i < path.length; i++) {
+          const d = google.maps.geometry.spherical.computeDistanceBetween(
+            new google.maps.LatLng(path[i-1].lat, path[i-1].lng),
+            new google.maps.LatLng(path[i].lat, path[i].lng)
+          );
+          segDists.push(d);
+          totalDist += d;
+        }
+        let targetDist = progress * totalDist;
+        let acc = 0;
+        for (let i = 0; i < segDists.length; i++) {
+          if (acc + segDists[i] >= targetDist) {
+            const segProgress = (targetDist - acc) / segDists[i];
+            const lat = path[i].lat + (path[i+1].lat - path[i].lat) * segProgress;
+            const lng = path[i].lng + (path[i+1].lng - path[i].lng) * segProgress;
+            const heading = Math.atan2(path[i+1].lng - path[i].lng, path[i+1].lat - path[i].lat) * 180 / Math.PI;
+            return { lat, lng, heading };
+          }
+          acc += segDists[i];
+        }
+        // End of path
+        const last = path[path.length-1];
+        const prev = path[path.length-2];
+        const heading = Math.atan2(last.lng - prev.lng, last.lat - prev.lat) * 180 / Math.PI;
+        return { lat: last.lat, lng: last.lng, heading };
+      }
+
+      function animateCars() {
+        cars.forEach(car => {
+          car.progress += car.speed;
+          if (car.progress > 1) car.progress = 0;
+          const pos = interpolateLatLng(routePath, car.progress);
+          car.marker.setPosition({ lat: pos.lat, lng: pos.lng });
+          car.marker.setIcon({
+            url: carIconUrl,
+            scaledSize: new google.maps.Size(36, 36),
+            anchor: new google.maps.Point(18, 18),
+            rotation: pos.heading
+          });
+        });
+        animationFrameId = requestAnimationFrame(animateCars);
+      }
+
+      function addUserPulse(lat, lng) {
+        // Remove old pulse if exists
+        if (userPulse) userPulse.setMap(null);
+        // Add a pulsing circle
+        userPulse = new google.maps.Circle({
+          strokeColor: '#007AFF',
+          strokeOpacity: 0.2,
+          strokeWeight: 0,
+          fillColor: '#007AFF',
+          fillOpacity: 0.2,
+          map,
+          center: { lat, lng },
+          radius: 30
+        });
+        // Animate the circle
+        let grow = true;
+        setInterval(() => {
+          let r = userPulse.getRadius();
+          if (grow) {
+            r += 2;
+            if (r > 60) grow = false;
+          } else {
+            r -= 2;
+            if (r < 30) grow = true;
+          }
+          userPulse.setRadius(r);
+        }, 30);
+      }
+
       function initMap() {
-        // Default to SF if geolocation fails
-        const fallback = { lat: 37.7749, lng: -122.4194 };
         map = new google.maps.Map(document.getElementById('map'), {
-          center: fallback,
+          center: origin,
           zoom: 15,
           styles: darkStyle,
           disableDefaultUI: true,
         });
-
-        // Try to get real-time location
+        getRoute((points) => {
+          routePath = points;
+          // Draw the route
+          routePolyline = new google.maps.Polyline({
+            path: routePath,
+            geodesic: true,
+            strokeColor: "#00FFAA",
+            strokeOpacity: 0.7,
+            strokeWeight: 4,
+            map: map
+          });
+          // Place car markers
+          cars = [
+            { progress: 0.0, speed: 0.0002, marker: null },
+            { progress: 0.2, speed: 0.00018, marker: null },
+            { progress: 0.4, speed: 0.00022, marker: null },
+            { progress: 0.6, speed: 0.00019, marker: null }
+          ];
+          cars.forEach((car, i) => {
+            const pos = interpolateLatLng(routePath, car.progress);
+            car.marker = new google.maps.Marker({
+              position: { lat: pos.lat, lng: pos.lng },
+              map,
+              icon: {
+                url: carIconUrl,
+                scaledSize: new google.maps.Size(36, 36),
+                anchor: new google.maps.Point(18, 18),
+                rotation: pos.heading
+              },
+              optimized: false
+            });
+          });
+          animateCars();
+        });
+        // User location
         if (navigator.geolocation) {
-          watchId = navigator.geolocation.watchPosition(
+          navigator.geolocation.getCurrentPosition(
             (pos) => {
               const userPos = {
                 lat: pos.coords.latitude,
@@ -105,62 +248,29 @@
                   position: userPos,
                   map,
                   icon: {
-                    url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-                    scaledSize: new google.maps.Size(40, 40)
+                    url: userIconUrl,
+                    scaledSize: new google.maps.Size(40, 40),
+                    anchor: new google.maps.Point(20, 20)
                   },
                   title: "You are here"
                 });
+                addUserPulse(userPos.lat, userPos.lng);
                 map.setCenter(userPos);
               } else {
                 userMarker.setPosition(userPos);
+                addUserPulse(userPos.lat, userPos.lng);
                 map.setCenter(userPos);
               }
             },
-            (err) => {
-              // If denied, just show fallback
-              map.setCenter(fallback);
+            () => {
+              // If denied, just show origin
+              map.setCenter(origin);
             },
             { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
           );
         } else {
-          map.setCenter(fallback);
+          map.setCenter(origin);
         }
-
-        // Add animated car markers
-        carData.forEach(car => {
-          const marker = new google.maps.Marker({
-            position: { lat: car.lat, lng: car.lng },
-            map,
-            icon: {
-              url: "https://img.icons8.com/color/48/000000/car--v1.png",
-              scaledSize: new google.maps.Size(36, 36),
-              anchor: new google.maps.Point(18, 18),
-              rotation: car.heading
-            },
-            optimized: false
-          });
-          carMarkers.push(marker);
-        });
-
-        // Animate cars
-        setInterval(moveCars, 1200);
-      }
-
-      function moveCars() {
-        carData.forEach((car, i) => {
-          // Random walk
-          const angle = Math.random() * 2 * Math.PI;
-          car.lat += 0.0001 * Math.cos(angle);
-          car.lng += 0.0001 * Math.sin(angle);
-          car.heading = (car.heading + Math.floor(Math.random() * 60 - 30)) % 360;
-          carMarkers[i].setPosition({ lat: car.lat, lng: car.lng });
-          carMarkers[i].setIcon({
-            url: "https://img.icons8.com/color/48/000000/car--v1.png",
-            scaledSize: new google.maps.Size(36, 36),
-            anchor: new google.maps.Point(18, 18),
-            rotation: car.heading
-          });
-        });
       }
     </script>
   </head>
@@ -170,6 +280,5 @@
       <img src="https://img.icons8.com/ios-filled/50/ffffff/search--v1.png"/>
       <input type="text" placeholder="Where to?" disabled />
     </div>
-    <img id="center-pin" src="https://img.icons8.com/ios-filled/50/ffffff/marker.png" style="display:none;" />
   </body>
 </html>
